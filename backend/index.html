@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Integrity Portal</title>
+    <script src="https://cdn.ethers.io/lib/ethers-5.2.umd.min.js"></script>
+    <style>
+        :root { --bg: #0f172a; --card: #1e293b; --primary: #3b82f6; --success: #10b981; --text: #f8fafc; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); max-width: 800px; margin: auto; padding: 40px; }
+        .card { background: var(--card); padding: 30px; border-radius: 16px; border: 1px solid #334155; }
+        input, textarea { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: white; box-sizing: border-box; }
+        .btn { width: 100%; padding: 14px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; color: white; margin-top: 10px; }
+        .btn-primary { background: var(--primary); }
+        .btn-wallet { background: var(--success); margin-bottom: 20px; }
+        .spinner { display: inline-block; width: 18px; height: 18px; border: 3px solid rgba(255,255,255,.3); border-radius: 50%; border-top-color: #fff; animation: spin 1s linear infinite; margin-right: 10px; vertical-align: middle; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #status { margin-top: 20px; padding: 15px; border-radius: 8px; display: none; text-align: center; }
+        .thinking { animation: pulse 1.5s infinite; background: #334155; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+        .nft-item { background: #334155; padding: 15px; border-radius: 10px; margin-top: 20px; border-left: 4px solid var(--success); }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🛡️ AI Integrity Portal</h1>
+        <button id="connectBtn" class="btn btn-wallet" onclick="connectWallet()">Connect MetaMask</button>
+        <p id="walletDisplay" style="text-align: center; color: #94a3b8; font-size: 0.8em;"></p>
+
+        <input type="text" id="title" placeholder="Story Title">
+        <textarea id="story" placeholder="Write your original content..."></textarea>
+        
+        <button id="mintBtn" class="btn btn-primary" onclick="processSubmission()">Verify & Mint NFT</button>
+        <div id="status"></div>
+    </div>
+    <div id="collection"></div>
+
+    <script>
+        let myNfts = [];
+        let walletAddress = "";
+
+        async function connectWallet() {
+            if (window.ethereum) {
+                const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                walletAddress = accounts[0];
+                document.getElementById('walletDisplay').innerText = "Connected: " + walletAddress;
+                document.getElementById('connectBtn').innerText = "Wallet Linked";
+            }
+        }
+
+        async function processSubmission() {
+            const statusDiv = document.getElementById('status');
+            const mintBtn = document.getElementById('mintBtn');
+            const story = document.getElementById('story').value;
+            const title = document.getElementById('title').value;
+
+            statusDiv.style.display = "block";
+            statusDiv.className = "thinking";
+            statusDiv.innerHTML = "🔍 AI is verifying originality...";
+            mintBtn.disabled = true;
+            mintBtn.innerHTML = '<span class="spinner"></span> AI is Thinking...';
+
+            try {
+                const res = await fetch(`http://127.0.0.1:8000/verify-and-mint?story_text=${encodeURIComponent(story)}&title=${encodeURIComponent(title)}`, {method: 'POST'});
+                const data = await res.json();
+
+                if (data.status === "success") {
+                    statusDiv.className = "";
+                    statusDiv.style.background = "rgba(16, 185, 129, 0.2)";
+                    statusDiv.style.color = "#10b981";
+                    statusDiv.innerHTML = "✅ SUCCESS: Minted!";
+                    myNfts.unshift({title, hash: data.transaction_hash, url: data.ipfs_link});
+                    renderCollection();
+                } else {
+                    statusDiv.className = "";
+                    statusDiv.style.background = "rgba(239, 68, 68, 0.2)";
+                    statusDiv.style.color = "#ef4444";
+                    statusDiv.innerHTML = "❌ REJECTED: Plagiarism Detected!";
+                }
+            } catch (e) { statusDiv.innerHTML = "❌ Server Error."; }
+            finally { mintBtn.disabled = false; mintBtn.innerHTML = "Verify & Mint NFT"; }
+        }
+
+        function renderCollection() {
+            document.getElementById('collection').innerHTML = "<h2>Your Collection</h2>" + myNfts.map(n => `
+                <div class="nft-item">
+                    <strong>${n.title}</strong><br>
+                    <a href="https://amoy.polygonscan.com/tx/${n.hash}" target="_blank" style="color:#3b82f6">Receipt</a> | 
+                    <a href="${n.url}" target="_blank" style="color:#10b981">Story</a>
+                </div>`).join('');
+        }
+    </script>
+</body>
+</html>
