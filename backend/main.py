@@ -1,16 +1,17 @@
 import os
+import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import requests
 from dotenv import load_dotenv
 
-# Load variables from .env file
-load_dotenv()
+# 1. Robust .env loading for Vercel
+# This ensures it finds the file regardless of the working directory
+basedir = os.path.abspath(os.path.dirname(__file__))
+load_dotenv(os.path.join(basedir, ".env"))
 
 app = FastAPI()
 
-# Enable CORS for your Next.js frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,39 +19,49 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Fetching token from environment variable
-# This keeps the actual "hf_..." string out of your code and GitHub history
+# 2. Secure Token Retrieval
 HF_TOKEN = os.getenv("HF_TOKEN")
 API_URL = "https://api-inference.huggingface.co/models/sentence-transformers/all-MiniLM-L6-v2"
-headers = {"Authorization": f"Bearer {HF_TOKEN}"}
 
 class StoryRequest(BaseModel):
     title: str
     content: str
 
-def query_embedding(text: str):
-    response = requests.post(API_URL, headers=headers, json={"inputs": text})
-    if response.status_code != 200:
-        raise HTTPException(status_code=500, detail="AI Model Error")
-    return response.json()
+# 3. Non-blocking AI Query using httpx
+async def query_embedding(text: str):
+    if not HF_TOKEN:
+        raise HTTPException(status_code=500, detail="Server Configuration Error: Missing HF_TOKEN")
+    
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(API_URL, headers=headers, json={"inputs": text}, timeout=10.0)
+            
+            # If Hugging Face returns an error, log it specifically
+            if response.status_code != 200:
+                print(f"HF API Error: {response.status_code} - {response.text}")
+                raise HTTPException(status_code=response.status_code, detail=f"AI Model Error: {response.text}")
+                
+            return response.json()
+        except httpx.ReadTimeout:
+            raise HTTPException(status_code=504, detail="AI Model took too long to respond")
+        except Exception as e:
+            print(f"Unexpected Backend Error: {str(e)}")
+            raise HTTPException(status_code=500, detail="Internal Server Logic Error")
 
 @app.post("/verify-and-mint")
 async def verify_and_mint(request: StoryRequest):
-    # 1. AI Integrity Check (Example: check content length or placeholder similarity)
+    # Integrity Check
     if len(request.content) < 50:
         return {"success": False, "message": "Story too short for integrity check."}
 
-    # 2. Get Embedding (Proves we processed it through our AI gatekeeper)
-    embedding = query_embedding(request.content)
+    # AI Verification
+    embedding = await query_embedding(request.content)
     
-    # 3. Minting Logic (This is where your Python logic calls the smart contract)
-    # Ensure your .env also contains your PRIVATE_KEY for the minting wallet
+    # Successful response
     return {
         "success": True, 
-        "message": "Story verified by AI and minted!",
-        "embedding_preview": embedding[:5]
+        "message": "Story verified by AI and ready for minting!",
+        "embedding_preview": embedding[:5] if isinstance(embedding, list) else []
     }
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
