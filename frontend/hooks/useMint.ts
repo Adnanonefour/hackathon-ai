@@ -9,7 +9,7 @@ export const useMint = () => {
     setLoading(true);
     try {
       const response = await axios.post(
-        `http://127.0.0.1:8000/verify-and-mint`,
+        `/api/verify-and-mint`,
         {
           story_text: story, 
           title: title,
